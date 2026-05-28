@@ -2,6 +2,9 @@ import Redis from "ioredis";
 import { randomUUID } from 'crypto';
 import fs from 'fs'
 
+import * as path from 'path';
+import { backoff } from "./utils/backoff";
+
 const PREFIX = '{homebrewmq}';
 interface EnqueueOptions {
   priority?: number;
@@ -60,33 +63,52 @@ private jobTTL: number;
         const now=Date.now();
         const runAt=now+delay;
 
-        const result=await this.redis.zcard(this.readyKey);
-        if(result>this.maxQueueSize){
-            throw new Error('Queue is full');
+        // Decide which queue and score to use
+        let targetKey: string;
+        let score: number;
+
+        if(delay>0){
+            targetKey = this.delayedKey;
+            score = runAt;
+        } else if(affinity){
+            targetKey = `${PREFIX}:ready:${affinity}`;
+            score = priority;
+        } else {
+            targetKey = this.readyKey;
+            score = priority;
         }
-        const multi =  this.redis.multi();
-        multi.hset(`job:${jobId}`, {
-      id: jobId,
-      queue: this.name,
-      payload: JSON.stringify(payload),
-      priority,
-      affinity: affinity ?? '',
-      status: delay > 0 ? 'delayed' : 'ready',
-      createdAt: now,
-      attempts: 0,
-      maxRetries: options.maxRetries ?? this.maxRetries,
-    });
-    if(delay>0){
-        multi.zadd(this.delayedKey,runAt,jobId)
-    }else if(affinity){
-         multi.zadd(`${PREFIX}:ready:${affinity}`, priority, jobId);
-    } else {
-        multi.zadd(this.readyKey, priority, jobId);
 
-    }
-    await multi.exec();
+        const enqueueScript = fs.readFileSync(path.join(__dirname, 'lua', 'enqueue.lua'), 'utf8');
 
-    
+        const hashFields = [
+            'id', jobId,
+            'queue', this.name,
+            'payload', JSON.stringify(payload),
+            'priority', String(priority),
+            'affinity', affinity ?? '',
+            'status', delay > 0 ? 'delayed' : 'ready',
+            'createdAt', String(now),
+            'attempts', '0',
+            'maxRetries', String(options.maxRetries ?? this.maxRetries),
+        ];
+
+        try {
+            await this.redis.eval(
+                enqueueScript,
+                2,
+                targetKey,
+                `job:${jobId}`,
+                String(this.maxQueueSize),
+                String(score),
+                jobId,
+                ...hashFields
+            );
+        } catch (err: any) {
+            if (err.message && err.message.includes('QUEUE_FULL')) {
+                throw new Error('Queue is full');
+            }
+            throw err;
+        }
 
     return jobId;
     }
@@ -94,7 +116,7 @@ private jobTTL: number;
     
 
     async  claim():Promise<Record<string,string>|null>{
-    const claimScript = fs.readFileSync('/path/to/claim.lua', 'utf8');
+    const claimScript = fs.readFileSync(path.join(__dirname, 'lua', 'claim.lua'), 'utf8');
     
     const flat = await this.redis.eval(
         claimScript,
@@ -110,6 +132,46 @@ private jobTTL: number;
         job[flat[i]]=flat[i+1];
     }
     return job;
+    }
+
+    async complete(jobId: string): Promise<void> {
+        const multi = this.redis.multi();
+        multi.zrem(this.processingKey, jobId);
+        multi.del(`job:${jobId}`);
+        const results = await multi.exec();
+        if (!results) {
+            throw new Error(`Failed to complete job ${jobId}: transaction aborted`);
+        }
+        for (const [err] of results) {
+            if (err) throw err;
+        }
+    }
+
+    async fail(job: any): Promise<void> {
+        const attempts = parseInt(job.attempts || '0', 10) + 1;
+        const maxRetries = parseInt(job.maxRetries || String(this.maxRetries), 10);
+
+        const multi = this.redis.multi();
+        multi.zrem(this.processingKey, job.id);
+
+        if (attempts >= maxRetries) {
+            // Send to DLQ — no more retries
+            multi.zadd(this.failedKey, Date.now(), job.id);
+            multi.hset(`job:${job.id}`, 'status', 'dead', 'attempts', String(attempts));
+        } else {
+            // Requeue with backoff delay
+            const delay = backoff(attempts);
+            multi.zadd(this.delayedKey, Date.now() + delay, job.id);
+            multi.hset(`job:${job.id}`, 'status', 'delayed', 'attempts', String(attempts));
+        }
+
+        const results = await multi.exec();
+        if (!results) {
+            throw new Error(`Failed to nack job ${job.id}: transaction aborted`);
+        }
+        for (const [err] of results) {
+            if (err) throw err;
+        }
     }
 
 }

@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 import { randomUUID } from 'crypto';
-import { resolveSoa } from "dns";
+import fs from 'fs'
 
 const PREFIX = '{homebrewmq}';
 interface EnqueueOptions {
@@ -64,7 +64,7 @@ private jobTTL: number;
         if(result>this.maxQueueSize){
             throw new Error('Queue is full');
         }
-        const multi = await this.redis.multi();
+        const multi =  this.redis.multi();
         multi.hset(`job:${jobId}`, {
       id: jobId,
       queue: this.name,
@@ -91,7 +91,28 @@ private jobTTL: number;
     return jobId;
     }
 
-        }
+    
+
+    async  claim():Promise<Record<string,string>|null>{
+    const claimScript = fs.readFileSync('/path/to/claim.lua', 'utf8');
+    
+    const flat = await this.redis.eval(
+        claimScript,
+        3,
+        this.readyKey,
+        this.processingKey,
+        this.failedKey,
+        '30000'
+    ) as string[] | null;
+    if(!flat|| flat.length===0)return null;
+    const job:Record<string,string>={};
+    for(let i =0;i<flat.length;i+=2){
+        job[flat[i]]=flat[i+1];
+    }
+    return job;
+    }
+
+}
         
 
 

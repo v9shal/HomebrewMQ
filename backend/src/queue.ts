@@ -13,7 +13,18 @@ interface EnqueueOptions {
   maxRetries?: number;
   idempotencyKey?: string | null;
 }
-
+interface Job {
+  id: string;
+  queue: string;
+  payload: string;
+  priority: number;
+  attempts: number;
+  maxRetries: number;
+  status: string;
+  affinity: string;
+  createdAt: number;
+  lastError?: string;
+}
 class Queue{
      private name: string;
   private redis: Redis;
@@ -115,24 +126,42 @@ private jobTTL: number;
 
     
 
-    async  claim():Promise<Record<string,string>|null>{
-    const claimScript = fs.readFileSync(path.join(__dirname, 'lua', 'claim.lua'), 'utf8');
-    
-    const flat = await this.redis.eval(
-        claimScript,
-        3,
-        this.readyKey,
-        this.processingKey,
-        this.failedKey,
-        '30000'
-    ) as string[] | null;
-    if(!flat|| flat.length===0)return null;
-    const job:Record<string,string>={};
-    for(let i =0;i<flat.length;i+=2){
-        job[flat[i]]=flat[i+1];
-    }
-    return job;
-    }
+   async claim(): Promise<Job | null> {
+  const claimScript = fs.readFileSync(
+    path.join(__dirname, 'lua', 'claim.lua'), 'utf8'
+  );
+
+  const flat = await this.redis.eval(
+    claimScript,
+    3,
+    this.readyKey,
+    this.processingKey,
+    this.failedKey,
+    '30000'
+  ) as string[] | null;
+
+  if (!flat || flat.length === 0) return null;
+
+  // convert flat array to object
+  const raw: Record<string, string> = {};
+  for (let i = 0; i < flat.length; i += 2) {
+    raw[flat[i]] = flat[i + 1];
+  }
+
+  // convert to typed Job
+  return {
+    id: raw['id'],
+    queue: raw['queue'],
+    payload: raw['payload'],
+    priority: parseInt(raw['priority']),
+    attempts: parseInt(raw['attempts']),
+    maxRetries: parseInt(raw['maxRetries']),
+    status: raw['status'],
+    affinity: raw['affinity'],
+    createdAt: parseInt(raw['createdAt']),
+    lastError: raw['lastError'],
+  };
+}
 
     async complete(jobId: string): Promise<void> {
         const multi = this.redis.multi();
@@ -147,23 +176,16 @@ private jobTTL: number;
         }
     }
 
-    async fail(job: any): Promise<void> {
-        const attempts = parseInt(job.attempts || '0', 10) + 1;
-        const maxRetries = parseInt(job.maxRetries || String(this.maxRetries), 10);
+    async fail(job: Job): Promise<void> {
+        const attempts = job.attempts;
+
 
         const multi = this.redis.multi();
         multi.zrem(this.processingKey, job.id);
 
-        if (attempts >= maxRetries) {
-            // Send to DLQ — no more retries
-            multi.zadd(this.failedKey, Date.now(), job.id);
-            multi.hset(`job:${job.id}`, 'status', 'dead', 'attempts', String(attempts));
-        } else {
-            // Requeue with backoff delay
             const delay = backoff(attempts);
             multi.zadd(this.delayedKey, Date.now() + delay, job.id);
-            multi.hset(`job:${job.id}`, 'status', 'delayed', 'attempts', String(attempts));
-        }
+            multi.hset(`job:${job.id}`, 'status', 'delayed');
 
         const results = await multi.exec();
         if (!results) {

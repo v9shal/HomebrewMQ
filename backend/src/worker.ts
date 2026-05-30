@@ -1,11 +1,19 @@
 import Redis from "ioredis";
 import { Queue } from "./queue";
+import { backoff } from "./utils/backoff";
 
 interface Job {
-    id: string;
-    [key: string]: string;
+  id: string;
+  queue: string;
+  payload: string;
+  priority: number;
+  attempts: number;
+  maxRetries: number;
+  status: string;
+  affinity: string;
+  createdAt: number;
+  lastError?: string;
 }
-
 class Worker{
 
     
@@ -26,7 +34,7 @@ class Worker{
                  await new Promise(r=>setTimeout(r,500));
                  continue;
             }
-            await this.process(job as Job);
+            await this.process(job);
         }
     }
     stop(){
@@ -38,9 +46,10 @@ class Worker{
             await this.queue.complete(job.id);
         }
         catch(err){
-            await this.queue.fail(job.id);
+            await this.queue.fail(job);
         }
     }
+    
 }
 
 export {Worker};

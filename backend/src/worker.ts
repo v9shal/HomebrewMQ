@@ -1,23 +1,11 @@
 import Redis from "ioredis";
 import { Queue } from "./queue";
-import { backoff } from "./utils/backoff";
 import { HeartBeat } from "./utils/heartbeat";
+import { Job } from "./type";
 import { randomUUID } from 'crypto';
 import os from 'os';
 
 
-interface Job {
-  id: string;
-  queue: string;
-  payload: string;
-  priority: number;
-  attempts: number;
-  maxRetries: number;
-  status: string;
-  affinity: string;
-  createdAt: number;
-  lastError?: string;
-}
 class Worker{
 
     
@@ -38,14 +26,24 @@ class Worker{
         this.heartBeat = new HeartBeat(this.redis, this.workerId);
     }
     async register(){
-        await this.redis.sadd('{homebrewmq}:workers', this.workerId)
-
+        const multi = this.redis.multi();
+        multi.sadd('{homebrewmq}:workers', this.workerId);
+        multi.hset(`worker:${this.workerId}`,
+            'workerId',      this.workerId,
+            'queue',         this.queue.name,
+            'hostname',      os.hostname(),
+            'pid',           String(process.pid),
+            'status',        'idle',
+            'registeredAt',  String(Date.now()),
+        );
+        await multi.exec();
     }
+    
     async start(){
         this.running =true;
         this.heartBeat.start();
         while(this.running){
-            const job=await this.queue.claim();
+            const job=await this.queue.claim(this.workerId);
             
             if(!job || !job.id){
                  await new Promise(r=>setTimeout(r,500));

@@ -25,7 +25,7 @@ for _, jobId in ipairs(jobIds) do
     local priority=tonumber(details['priority'] or 0)
     redis.call('ZREM',delayedQueue,jobId)
     redis.call('ZADD',readyQueue,priority,jobId)
-    redis.call('HSET','job:',jobId,'status','ready')
+    redis.call('HSET','job:'..jobId,'status','ready')
     
 end
 

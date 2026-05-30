@@ -8,5 +8,6 @@ export interface Job {
   status: string;
   affinity: string;
   createdAt: number;
+  workerId?: string;
   lastError?: string;
 }

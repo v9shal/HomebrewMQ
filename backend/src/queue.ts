@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs'
 import * as path from 'path';
 import { backoff } from "./utils/backoff";
+import { Job } from "./type";
 
 const PREFIX = '{homebrewmq}';
 interface EnqueueOptions {
@@ -12,20 +13,8 @@ interface EnqueueOptions {
   maxRetries?: number;
   idempotencyKey?: string | null;
 }
-interface Job {
-  id: string;
-  queue: string;
-  payload: string;
-  priority: number;
-  attempts: number;
-  maxRetries: number;
-  status: string;
-  affinity: string;
-  createdAt: number;
-  lastError?: string;
-}
 class Queue{
-     private name: string;
+     readonly name: string;
   private redis: Redis;
 
   private readyKey: string;
@@ -56,7 +45,7 @@ private jobTTL: number;
     this.maxQueueSize = options.maxQueueSize ?? 10000;
     this.maxRetries = options.maxRetries ?? 3;
     this.jobTTL = options.jobTTL ?? 86400;
-
+    
 
     }
     async register(){
@@ -66,7 +55,7 @@ private jobTTL: number;
         const {
       priority = 0,
       delay = 0,
-      idempotencyKey = null,
+      maxRetries = this.maxRetries,
       affinity = null,
     } = options;
         const jobId=randomUUID();
@@ -99,7 +88,7 @@ private jobTTL: number;
             'status', delay > 0 ? 'delayed' : 'ready',
             'createdAt', String(now),
             'attempts', '0',
-            'maxRetries', String(options.maxRetries ?? this.maxRetries),
+            'maxRetries', String(maxRetries),
         ];
 
         try {
@@ -125,7 +114,7 @@ private jobTTL: number;
 
     
 
-   async claim(): Promise<Job | null> {
+   async claim(workerId:string): Promise<Job | null> {
   const claimScript = fs.readFileSync(
     path.join(__dirname, 'lua', 'claim.lua'), 'utf8'
   );
@@ -136,7 +125,9 @@ private jobTTL: number;
     this.readyKey,
     this.processingKey,
     this.failedKey,
-    '30000'
+    '30000',
+    '',
+    workerId
   ) as string[] | null;
 
   if (!flat || flat.length === 0) return null;

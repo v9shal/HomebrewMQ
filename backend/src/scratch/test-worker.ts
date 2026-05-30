@@ -11,7 +11,7 @@ async function main() {
 
     const worker = new Worker(queue, async (job) => {
         console.log('processing', job);
-        worker.stop();
+       // worker.stop();
     }, redis);
     await worker.register();
 

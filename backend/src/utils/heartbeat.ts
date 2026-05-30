@@ -16,11 +16,7 @@ class HeartBeat{
         this.intervalId=null
     }
     async  pulse() {
-        if(this.working){
-
-            await this.redis.setex(`worker:heartbeat:${this.workerId}`,this.ttl,'alive')
-        }
-        
+        await this.redis.setex(`worker:heartbeat:${this.workerId}`,this.ttl,'alive')
     }
      start(){
         this.working=true;

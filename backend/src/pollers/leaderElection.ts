@@ -1,6 +1,7 @@
 import Redis from "ioredis";
 import { delayedPoll } from "./delayedPoller";
 import { Worker } from "../worker";
+import { affinity } from "./affinityReaper";
 export const redis = new Redis();
 
 // Atomically renew the lock only if this worker still owns it
@@ -17,6 +18,8 @@ async function leaderHoldKey(workerId: string) {
 
     if (acquired) {
         const pollInterval = setInterval(() => delayedPoll(), 500);
+          const affinityInterval =
+        setInterval(() => affinity(workerId), 150000);
 
         const renewInterval = setInterval(async () => {
             const renewed = await redis.eval(RENEW_SCRIPT, 1, 'lock:delayedPoller', workerId, '10');
@@ -24,6 +27,8 @@ async function leaderHoldKey(workerId: string) {
                 // Lock was lost; stop polling and try to re-acquire
                 clearInterval(pollInterval);
                 clearInterval(renewInterval);
+                clearInterval(affinityInterval);
+
                 setTimeout(() => leaderHoldKey(workerId), 1000);
             }
         }, 5000);

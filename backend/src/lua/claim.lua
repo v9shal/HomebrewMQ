@@ -19,9 +19,18 @@ local visibilityTimeout = tonumber(ARGV[1])
 local now = redis.call('TIME')
 local nowMs = tonumber(now[1]) * 1000 +
               math.floor(tonumber(now[2]) / 1000)
+local affinity = ARGV[2]
+local workerId = ARGV[3]
+local result = {}
 
-local result = redis.call('ZPOPMIN', readyQueue)
+if affinity and affinity ~= '' then
+  result = redis.call('ZPOPMIN', 
+           '{homebrewmq}:ready:' .. affinity, 1)
+end
 
+if #result == 0 then
+  result = redis.call('ZPOPMIN', KEYS[1])
+end
 if #result == 0 then
   return nil
 end
@@ -40,7 +49,7 @@ if attempts >= maxRetries then
   redis.call('ZADD', failedQueue, nowMs, jobId)
     redis.call('HSET', 'job:' .. jobId, 'status', 'failed')  
 
-  return "DLQ"
+  return nil
 end
 
 redis.call(
@@ -60,8 +69,8 @@ redis.call(
 redis.call(
   'HSET',
   'job:' .. jobId,
-  'status',
-  'processing'
+  'status', 'processing',
+  'workerId', workerId
 )
 
 return redis.call('HGETALL', 'job:' .. jobId)

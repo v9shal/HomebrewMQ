@@ -4,6 +4,7 @@ import { HeartBeat } from "./utils/heartbeat";
 import { Job } from "./type";
 import { randomUUID } from 'crypto';
 import os from 'os';
+import { CircuitBreaker } from "./utils/circuitBreaker";
 
 
 class Worker{
@@ -15,12 +16,13 @@ class Worker{
     private redis:Redis
     private heartBeat:HeartBeat;
     readonly workerId:string;
-
+    private cb:CircuitBreaker
 
     constructor(queue:Queue,processor:(job:Job)=>Promise<void>,redisClient:Redis,workerId?:string){
         this.queue=queue;
         this.processor=processor;
         this.running=false;
+        this.cb=new CircuitBreaker(redisClient)
         this.redis=redisClient;
      this.workerId = workerId??`${os.hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
         this.heartBeat = new HeartBeat(this.redis, this.workerId);
@@ -45,6 +47,10 @@ class Worker{
         while(this.running){
             const job=await this.queue.claim(this.workerId);
             
+           if (job === 'circuit_open') {
+  await new Promise(r => setTimeout(r, 5000 + Math.random() * 1000)); 
+  continue;
+}
             if(!job || !job.id){
                  await new Promise(r=>setTimeout(r,500));
                  continue;
@@ -60,9 +66,14 @@ class Worker{
         try{
             await this.processor(job);
             await this.queue.complete(job.id);
+            await this.redis.zadd(`{homebrewmq}:cb:success:${this.queue.name}`, Date.now(), job.id);
+            // Successful probe while half-open → reset circuit to closed
+            const state = await this.cb.getState(this.queue.name);
+            if (state === 'half-open') await this.cb.reset(this.queue.name);
         }
         catch(err){
             await this.queue.fail(job,err as Error);
+            await this.redis.zadd(`{homebrewmq}:cb:failure:${this.queue.name}`, Date.now(), job.id);
         }
     }
     

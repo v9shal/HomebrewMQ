@@ -114,12 +114,14 @@ private jobTTL: number;
 
     
 
-   async claim(workerId:string): Promise<Job | null> {
+   async claim(workerId:string): Promise<Job | null|'circuit_open'> {
   const claimScript = fs.readFileSync(
     path.join(__dirname, 'lua', 'claim.lua'), 'utf8'
   );
 
-  const flat = await this.redis.eval(
+  let flat: string[] | null;
+  try {
+    flat = await this.redis.eval(
     claimScript,
     3,
     this.readyKey,
@@ -127,8 +129,13 @@ private jobTTL: number;
     this.failedKey,
     '30000',
     '',
-    workerId
+    workerId,
+    this.name
   ) as string[] | null;
+  } catch (err: any) {
+    if (err.message === 'circuit_open') return 'circuit_open';
+    throw err;
+  }
 
   if (!flat || flat.length === 0) return null;
 

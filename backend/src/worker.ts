@@ -46,7 +46,7 @@ class Worker{
             await this.queue.complete(job.id);
         }
         catch(err){
-            await this.queue.fail(job);
+            await this.queue.fail(job,err as Error);
         }
     }
     

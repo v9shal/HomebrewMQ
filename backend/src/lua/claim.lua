@@ -37,7 +37,8 @@ local attempts = tonumber(job['attempts'] or 0)
 local maxRetries = tonumber(job['maxRetries'] or 0)
 
 if attempts >= maxRetries then
-  redis.call('ZADD', failedQueue, priority, jobId)
+  redis.call('ZADD', failedQueue, nowMs, jobId)
+    redis.call('HSET', 'job:' .. jobId, 'status', 'failed')  
 
   return "DLQ"
 end

@@ -1,7 +1,6 @@
 import Redis from "ioredis";
 import { randomUUID } from 'crypto';
 import fs from 'fs'
-
 import * as path from 'path';
 import { backoff } from "./utils/backoff";
 
@@ -142,13 +141,11 @@ private jobTTL: number;
 
   if (!flat || flat.length === 0) return null;
 
-  // convert flat array to object
   const raw: Record<string, string> = {};
   for (let i = 0; i < flat.length; i += 2) {
     raw[flat[i]] = flat[i + 1];
   }
 
-  // convert to typed Job
   return {
     id: raw['id'],
     queue: raw['queue'],
@@ -176,7 +173,7 @@ private jobTTL: number;
         }
     }
 
-    async fail(job: Job): Promise<void> {
+    async fail(job: Job,error:Error): Promise<void> {
         const attempts = job.attempts;
 
 
@@ -185,7 +182,7 @@ private jobTTL: number;
 
             const delay = backoff(attempts);
             multi.zadd(this.delayedKey, Date.now() + delay, job.id);
-            multi.hset(`job:${job.id}`, 'status', 'delayed');
+            multi.hset(`job:${job.id}`, 'status', 'delayed', 'lastError', error.message);
 
         const results = await multi.exec();
         if (!results) {

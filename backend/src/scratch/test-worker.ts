@@ -12,10 +12,12 @@ async function main() {
     const worker = new Worker(queue, async (job) => {
         console.log('processing', job);
         worker.stop();
-    });
+    }, redis);
+    await worker.register();
 
     await queue.enqueue({ name: 'vishal' }, { priority: 1 });
     await worker.start();
+
 
     redis.disconnect();
 }

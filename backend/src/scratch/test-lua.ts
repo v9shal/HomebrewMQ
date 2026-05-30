@@ -4,7 +4,12 @@ const redis=new Redis();
 async function main(){
     await testseed();
     const result=fs.readFileSync('/home/vishal/Desktop/HomebrewMQ/backend/src/lua/claim.lua','utf8');
-    const ans=await redis.eval(result,3,'readyQueue','processingQueue','failedQueue','30000');
+    const ans=await redis.eval(result, 3, 
+  '{homebrewmq}:readyQueue',
+  '{homebrewmq}:processingQueue', 
+  '{homebrewmq}:failedQueue',
+  '30000'
+);
     console.log(ans);
     redis.disconnect();
 }
@@ -19,6 +24,6 @@ await redis.hset('job:job1', {
   payload: '{"task":"hello"}',
   status: 'pending'
 });
-await redis.zadd('readyQueue', 1, 'job1');
+await redis.zadd('{homebrewmq}:readyQueue', 1, 'job1')
 }
 //testseed();

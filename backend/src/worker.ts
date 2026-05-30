@@ -5,6 +5,7 @@ import { Job } from "./type";
 import { randomUUID } from 'crypto';
 import os from 'os';
 import { CircuitBreaker } from "./utils/circuitBreaker";
+import { JobHandle } from "./utils/jobHandle";
 
 
 class Worker{
@@ -63,8 +64,14 @@ class Worker{
         this.heartBeat.stop();
     }
     async process(job:Job){
+        const handle=new JobHandle(this.redis,job.id,this.workerId);
+        const extendInterval = setInterval(
+    () => handle.extend(30000), 15000
+    );
         try{
             await this.processor(job);
+            const owned = await handle.isOwner();
+        if (!owned) return;
             await this.queue.complete(job.id);
             await this.redis.zadd(`{homebrewmq}:cb:success:${this.queue.name}`, Date.now(), job.id);
             // Successful probe while half-open → reset circuit to closed
@@ -74,6 +81,9 @@ class Worker{
         catch(err){
             await this.queue.fail(job,err as Error);
             await this.redis.zadd(`{homebrewmq}:cb:failure:${this.queue.name}`, Date.now(), job.id);
+        }
+        finally{
+            clearTimeout(extendInterval);
         }
     }
     

@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 import { delayedPoll } from "./delayedPoller";
-
+import { Worker } from "../worker";
 export const redis = new Redis();
 
 // Atomically renew the lock only if this worker still owns it

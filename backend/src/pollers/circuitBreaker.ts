@@ -33,10 +33,7 @@ async function circuitBreakerPoll(workerId: string) {
                     now - openedAt >
                     OPEN_TIMEOUT_MS
                 ) {
-                    await redis.set(
-                        `{homebrewmq}:cb:state:${queue}`,
-                        "half-open"
-                    );
+                    await circuitBreaker.halfOpen(queue);
                 }
 
                 continue;

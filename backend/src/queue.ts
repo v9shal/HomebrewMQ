@@ -4,6 +4,7 @@ import fs from 'fs'
 import * as path from 'path';
 import { backoff } from "./utils/backoff";
 import { Job } from "./type";
+import { RealtimePublisher } from "./dashboard/realtime";
 
 const PREFIX = '{homebrewmq}';
 interface EnqueueOptions {
@@ -16,6 +17,7 @@ interface EnqueueOptions {
 class Queue{
      readonly name: string;
   private redis: Redis;
+  private publisher: RealtimePublisher;
 
   private readyKey: string;
   private processingKey: string;
@@ -37,6 +39,7 @@ private jobTTL: number;
     }
     this.name=name;
     this.redis=redisClient
+    this.publisher = new RealtimePublisher(redisClient);
     this.readyKey=`${PREFIX}:readyQueue`;
     this.processingKey=`${PREFIX}:processingQueue`;
     this.delayedKey=`${PREFIX}:delayedQueue`;
@@ -109,6 +112,8 @@ private jobTTL: number;
             throw err;
         }
 
+        await this.publisher.publish('job:enqueued', { jobId, queue: this.name, priority });
+
     return jobId;
     }
 
@@ -169,6 +174,7 @@ private jobTTL: number;
         for (const [err] of results) {
             if (err) throw err;
         }
+        await this.publisher.publish('job:completed', { jobId, queue: this.name });
     }
 
     async fail(job: Job,error:Error): Promise<void> {
@@ -178,9 +184,14 @@ private jobTTL: number;
         const multi = this.redis.multi();
         multi.zrem(this.processingKey, job.id);
 
+        if (job.attempts >= job.maxRetries) {
+            multi.zadd(this.failedKey, Date.now(), job.id);
+            multi.hset(`job:${job.id}`, 'status', 'failed', 'lastError', error.message);
+        } else {
             const delay = backoff(attempts);
             multi.zadd(this.delayedKey, Date.now() + delay, job.id);
             multi.hset(`job:${job.id}`, 'status', 'delayed', 'lastError', error.message);
+        }
 
         const results = await multi.exec();
         if (!results) {
@@ -189,6 +200,11 @@ private jobTTL: number;
         for (const [err] of results) {
             if (err) throw err;
         }
+
+        const event = job.attempts >= job.maxRetries ? 'job:dlq' : 'job:failed';
+        await this.publisher.publish(event, {
+            jobId: job.id, queue: this.name, error: error.message, attempts: job.attempts,
+        });
     }
 
 }

@@ -1,12 +1,15 @@
 import Redis from "ioredis";
+import { RealtimePublisher } from "../dashboard/realtime";
 
 class CircuitBreaker {
     private readonly redis: Redis;
+    private readonly publisher: RealtimePublisher;
     private readonly WINDOW_MS = 60_000;
     private readonly MIN_SAMPLES = 10;
 
     constructor(redisClient: Redis) {
         this.redis = redisClient;
+        this.publisher = new RealtimePublisher(redisClient);
     }
 
     async getFailureRate(queueName: string): Promise<number | null> {
@@ -68,6 +71,7 @@ class CircuitBreaker {
             `{homebrewmq}:cb:openedAt:${queue}`,
             String(now)
         );
+        await this.publisher.publish('circuit:open', { queue });
     }
 
     async halfOpen(queue: string): Promise<void> {
@@ -75,6 +79,7 @@ class CircuitBreaker {
             `{homebrewmq}:cb:state:${queue}`,
             'half-open'
         );
+        await this.publisher.publish('circuit:half-open', { queue });
     }
 
     async reset(queue: string): Promise<void> {
@@ -90,6 +95,7 @@ class CircuitBreaker {
         );
 
         await multi.exec();
+        await this.publisher.publish('circuit:closed', { queue });
     }
 }
 

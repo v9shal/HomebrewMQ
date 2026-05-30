@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import os from 'os';
 import { CircuitBreaker } from "./utils/circuitBreaker";
 import { JobHandle } from "./utils/jobHandle";
+import { RealtimePublisher } from "./dashboard/realtime";
 
 
 class Worker{
@@ -18,6 +19,7 @@ class Worker{
     private heartBeat:HeartBeat;
     readonly workerId:string;
     private cb:CircuitBreaker
+    private publisher:RealtimePublisher;
 
     constructor(queue:Queue,processor:(job:Job)=>Promise<void>,redisClient:Redis,workerId?:string){
         this.queue=queue;
@@ -25,6 +27,7 @@ class Worker{
         this.running=false;
         this.cb=new CircuitBreaker(redisClient)
         this.redis=redisClient;
+        this.publisher = new RealtimePublisher(redisClient);
      this.workerId = workerId??`${os.hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
         this.heartBeat = new HeartBeat(this.redis, this.workerId);
     }
@@ -64,6 +67,7 @@ class Worker{
         this.heartBeat.stop();
     }
     async process(job:Job){
+        await this.publisher.publish('job:claimed', { jobId: job.id, queue: this.queue.name, attempts: job.attempts });
         const handle=new JobHandle(this.redis,job.id,this.workerId);
         const extendInterval = setInterval(
     () => handle.extend(30000), 15000

@@ -35,9 +35,7 @@ class JobHandle {
             "leaseToken"
         );
 
-        return (
-            owner === this.workerId &&
-        );
+        return owner === this.workerId;
     }
 }
 

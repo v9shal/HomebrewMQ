@@ -1,5 +1,7 @@
 # HomebrewMQ
 
+![CI](https://github.com/v9shal/HomebrewMQ/actions/workflows/ci.yml/badge.svg)
+
 A Redis-backed, Cluster-compatible distributed job queue written from scratch in TypeScript. Built to learn the hard parts: priority + delayed scheduling, visibility timeouts, worker fencing, dead-worker recovery, circuit breaking, and a live event stream — all coordinated through atomic Lua scripts.
 
 > Status: working end-to-end. Single-node Redis verified; Cluster-safe by design (all keys use the `{homebrewmq}` hash tag).

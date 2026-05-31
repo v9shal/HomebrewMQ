@@ -41,4 +41,4 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Unit + Integration tests
-        run: npx jest --runInBand --testPathPatterns="unit|integration" --forceExit
+        run: npm run test:ci

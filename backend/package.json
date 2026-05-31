@@ -4,10 +4,15 @@
   "description": "",
   "main": "dist/queue.js",
   "scripts": {
-    "build": "tsc",
-    "dev": "ts-node src/queue.ts",
-    "start": "node dist/queue.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest --runInBand",
+    "test:ci": "jest --runInBand --testPathPatterns=\"unit|integration\" --forceExit",
+    "test:bench": "jest --runInBand --testPathPatterns=benchmark",
+    "test:chaos": "jest --runInBand --testPathPatterns=chaos"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testTimeout": 60000
   },
   "keywords": [],
   "author": "",
@@ -18,7 +23,9 @@
     "ioredis": "^5.11.0"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.9.1",
+    "ts-jest": "^29.4.11",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
   }

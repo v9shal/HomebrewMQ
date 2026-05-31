@@ -21,8 +21,7 @@ end
 
 for _, jobId in ipairs(jobIds) do
 
-    local details = parseHash(redis.call('HGETALL', 'job:'..jobId))
-    local priority=tonumber(details['priority'] or 0)
+    local priority = tonumber(redis.call('HMGET', 'job:'..jobId,'priority'))
     redis.call('ZREM',delayedQueue,jobId)
     redis.call('ZADD',readyQueue,priority,jobId)
     redis.call('HSET','job:'..jobId,'status','ready')

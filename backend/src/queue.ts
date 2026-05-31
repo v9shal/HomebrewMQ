@@ -18,6 +18,8 @@ class Queue{
      readonly name: string;
   private redis: Redis;
   private publisher: RealtimePublisher;
+   private enqueueScript: string;
+  private claimScript: string;
 
   private readyKey: string;
   private processingKey: string;
@@ -48,9 +50,15 @@ private jobTTL: number;
     this.maxQueueSize = options.maxQueueSize ?? 10000;
     this.maxRetries = options.maxRetries ?? 3;
     this.jobTTL = options.jobTTL ?? 86400;
-    
+     this.enqueueScript = fs.readFileSync(
+      path.join(__dirname, 'lua', 'enqueue.lua'), 'utf8'
+    );
+    this.claimScript = fs.readFileSync(
+      path.join(__dirname, 'lua', 'claim.lua'), 'utf8'
+    );
+  }
 
-    }
+    
     async register(){
         await this.redis.sadd(this.queuesKey,this.name)
     }
@@ -80,8 +88,6 @@ private jobTTL: number;
             score = priority;
         }
 
-        const enqueueScript = fs.readFileSync(path.join(__dirname, 'lua', 'enqueue.lua'), 'utf8');
-
         const hashFields = [
             'id', jobId,
             'queue', this.name,
@@ -96,7 +102,7 @@ private jobTTL: number;
 
         try {
             await this.redis.eval(
-                enqueueScript,
+                this.enqueueScript,
                 2,
                 targetKey,
                 `job:${jobId}`,
@@ -120,14 +126,12 @@ private jobTTL: number;
     
 
    async claim(workerId:string): Promise<Job | null|'circuit_open'> {
-  const claimScript = fs.readFileSync(
-    path.join(__dirname, 'lua', 'claim.lua'), 'utf8'
-  );
+ 
 
   let flat: string[] | null;
   try {
     flat = await this.redis.eval(
-    claimScript,
+    this.claimScript,
     3,
     this.readyKey,
     this.processingKey,
